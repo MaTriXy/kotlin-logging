@@ -1,3 +1,23 @@
+# 1.7.6
+
+* wrap slf4j logger with kotlin logger - [#88](https://github.com/MicroUtils/kotlin-logging/issues/88)
+
+# 1.7.5
+
+* Provide for nullable in entry and rename exit argument - [#89](https://github.com/MicroUtils/kotlin-logging/issues/89)
+
+# 1.7.4
+
+* Fixed nullability in exit signature: [#84](https://github.com/MicroUtils/kotlin-logging/issues/84) [#86](https://github.com/MicroUtils/kotlin-logging/issues/86) [#87](https://github.com/MicroUtils/kotlin-logging/issues/87)
+
+# 1.7.2
+
+* Fixed missing slf4j dependency - https://github.com/MicroUtils/kotlin-logging/issues/83
+
+# 1.7.1
+
+* Convert project to new MPP format: https://github.com/MicroUtils/kotlin-logging/issues/64
+
 # 1.6.26
 
 * Add support for slf4j-ext: https://github.com/MicroUtils/kotlin-logging/pull/73
