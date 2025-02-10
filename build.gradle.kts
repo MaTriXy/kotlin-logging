@@ -1,114 +1,308 @@
-import java.util.*
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+import org.gradle.jvm.tasks.Jar
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
+import org.jetbrains.kotlin.gradle.targets.js.dsl.ExperimentalWasmDsl
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    kotlin("multiplatform") version "1.3.41"
-    id("com.jfrog.bintray") version "1.8.4"
+    kotlin("multiplatform") version "2.0.21"
+    // This version is dependent on the maximum tested version
+    // of this plugin within the Kotlin multiplatform library
+    id("com.android.library") version "8.8.0"
+
+    id("org.jetbrains.dokka") version "2.0.0"
+
+    id("com.diffplug.spotless") version "7.0.1"
+
+    id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
     `maven-publish`
-    `java-library` //todo: ask whether we need javadoc at all as it is always empty
+    signing
 }
 
-buildscript {
-    apply("versions.gradle.kts")
-}
+apply("versions.gradle.kts")
 
-group = "io.github.microutils"
-version = "1.6.27"
+group = "io.github.oshai"
+version = "7.0.5"
 
 repositories {
+    google()
     mavenCentral()
 }
 
-tasks {
-    register<Jar>("javadocJar") {
-        val javadocTask = getByName<Javadoc>("javadoc")
-        from(javadocTask.destinationDir)
-        dependsOn(javadocTask)
-        archiveClassifier.set("javadoc")
+tasks.withType<KotlinCompile> {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_1_8
     }
 }
 
 kotlin {
-    metadata {
-        mavenPublication {
-            // make a name of an artifact backward-compatible, default "-metadata"
-            artifactId = "${rootProject.name}-common"
-        }
+    explicitApi()
+
+    @OptIn(ExperimentalKotlinGradlePluginApi::class)
+    compilerOptions {
+        // kotlin compiler compatibility options
+        apiVersion.set(KotlinVersion.KOTLIN_2_0)
+        languageVersion.set(KotlinVersion.KOTLIN_2_0)
+
+        // Required to silence compiler warnings about the beta status of
+        // expected and actual classes. See https://kotlinlang.org/docs/multiplatform-expect-actual.html#expected-and-actual-classes
+        freeCompilerArgs.add("-Xexpect-actual-classes")
     }
+
     jvm {
-        compilations.named("main") {
-            // kotlin compiler compatibility options
-            kotlinOptions {
-                apiVersion = "1.1"
-                languageVersion = "1.1"
-            }
-        }
-        mavenPublication {
-            // make a name of jvm artifact backward-compatible, default "-jvm"
-            artifactId = rootProject.name
-        }
     }
     js {
-        compilations.named("main") {
-            kotlinOptions {
-                metaInfo = true
-                sourceMap = true
-                verbose = true
-                moduleKind = "umd"
+        browser {
+            testTask {
+                useKarma {
+                    useChromeHeadless()
+                }
+            }
+        }
+        nodejs()
+    }
+    @OptIn(ExperimentalWasmDsl::class)
+    wasmJs {
+        browser {
+            testTask {
+                useKarma {
+                    useChromeHeadless()
+                }
             }
         }
     }
+    androidTarget {
+        publishLibraryVariants("release", "debug")
+    }
+    val linuxTargets = listOf(
+        linuxArm64(),
+        linuxX64(),
+        mingwX64(),
+        androidNativeX64(),
+        androidNativeX86(),
+        androidNativeArm64(),
+        androidNativeArm32(),
+    )
+    val darwinTargets = listOf(
+        macosArm64(),
+        macosX64(),
+        iosArm64(),
+        iosSimulatorArm64(),
+        iosX64(),
+        watchosArm64(),
+        watchosSimulatorArm64(),
+        watchosX64(),
+        tvosArm64(),
+        tvosSimulatorArm64(),
+        tvosX64()
+    )
+
     sourceSets {
-        commonMain {
-            dependencies {
-                implementation(kotlin("stdlib-common"))
-            }
-        }
-        commonTest {
+        val commonMain by getting {}
+        val commonTest by getting {
             dependencies {
                 implementation(kotlin("test-common"))
                 implementation(kotlin("test-annotations-common"))
             }
         }
-        named("jvmMain") {
+        // common to jvm and android
+        val javaMain by creating {
+            dependsOn(commonMain)
             dependencies {
-                implementation(kotlin("stdlib"))
-                api("org.slf4j:slf4j-api:${extra["sl4j_version"]}")
+                compileOnly("org.slf4j:slf4j-api:${extra["slf4j_version"]}")
+                compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j:${extra["coroutines_version"]}")
             }
         }
-        named("jvmTest") {
+        val jvmMain by getting {
+            dependsOn(javaMain)
+            dependencies {
+                compileOnly("org.slf4j:slf4j-api:${extra["slf4j_version"]}")
+                compileOnly("ch.qos.logback:logback-classic:${extra["logback_version"]}")
+                compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j:${extra["coroutines_version"]}")
+            }
+        }
+        val jvmTest by getting {
             dependencies {
                 implementation(kotlin("test"))
-                implementation(kotlin("test-junit"))
-                implementation("junit:junit:${extra["junit_version"]}")
-                implementation("org.mockito:mockito-all:${extra["mockito_version"]}")
+                implementation("org.junit.jupiter:junit-jupiter-engine:${extra["junit_version"]}")
+                implementation("org.junit.jupiter:junit-jupiter-params:${extra["junit_version"]}")
+                implementation("org.mockito:mockito-core:${extra["mockito_version"]}")
                 implementation("org.apache.logging.log4j:log4j-api:${extra["log4j_version"]}")
                 implementation("org.apache.logging.log4j:log4j-core:${extra["log4j_version"]}")
-                implementation("org.apache.logging.log4j:log4j-slf4j-impl:${extra["log4j_version"]}")
+                implementation("org.apache.logging.log4j:log4j-slf4j2-impl:${extra["log4j_version"]}")
+                implementation("org.slf4j:slf4j-api:${extra["slf4j_version"]}")
+                implementation("ch.qos.logback:logback-classic:${extra["logback_version"]}")
+                implementation("net.logstash.logback:logstash-logback-encoder:${extra["logstash_logback_encoder_version"]}")
+
+                // our jul test just forward the logs jul -> slf4j -> log4j
+                implementation("org.slf4j:jul-to-slf4j:${extra["slf4j_version"]}")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j:${extra["coroutines_version"]}")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${extra["coroutines_version"]}")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${extra["coroutines_version"]}")
             }
         }
-        named("jsMain") {
+        val androidMain by getting {
+            dependsOn(javaMain)
             dependencies {
-                implementation(kotlin("stdlib-js"))
+                compileOnly("org.slf4j:slf4j-api:${extra["slf4j_version"]}")
+                compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j:${extra["coroutines_version"]}")
             }
         }
-        named("jsTest") {
+        val androidUnitTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation("org.junit.jupiter:junit-jupiter-engine:${extra["junit_version"]}")
+                implementation("org.junit.jupiter:junit-jupiter-params:${extra["junit_version"]}")
+                implementation("org.mockito:mockito-core:${extra["mockito_version"]}")
+                implementation("org.apache.logging.log4j:log4j-api:${extra["log4j_version"]}")
+                implementation("org.apache.logging.log4j:log4j-core:${extra["log4j_version"]}")
+                implementation("org.apache.logging.log4j:log4j-slf4j2-impl:${extra["log4j_version"]}")
+                implementation("org.slf4j:slf4j-api:${extra["slf4j_version"]}")
+                // our jul test just forward the logs jul -> slf4j -> log4j
+                implementation("org.slf4j:jul-to-slf4j:${extra["slf4j_version"]}")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j:${extra["coroutines_version"]}")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${extra["coroutines_version"]}")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${extra["coroutines_version"]}")
+            }
+        }
+        val directMain by creating {
+            dependsOn(commonMain)
+        }
+        val jsMain by getting {
+            dependsOn(directMain)
+        }
+        val jsTest by getting {
             dependencies {
                 implementation(kotlin("test-js"))
             }
         }
+        val wasmJsMain by getting {
+            dependsOn(directMain)
+        }
+        val wasmJsTest by getting {
+            dependencies {
+                implementation(kotlin("test-wasm-js"))
+            }
+        }
+        val nativeMain by creating {
+            dependsOn(directMain)
+        }
+        val nativeTest by creating {
+            dependencies {
+                implementation(kotlin("test"))
+            }
+        }
+        val linuxMain by creating {
+            dependsOn(nativeMain)
+        }
+        val darwinMain by creating {
+            dependsOn(commonMain)
+        }
+        linuxTargets.forEach {
+            getByName("${it.targetName}Main") {
+                dependsOn(linuxMain)
+            }
+        }
+        darwinTargets.forEach {
+            getByName("${it.targetName}Main") {
+                dependsOn(darwinMain)
+            }
+        }
     }
 }
+
+android {
+    compileSdk = 31
+    sourceSets["main"].manifest.srcFile("src/androidMain/AndroidManifest.xml")
+    defaultConfig {
+        minSdk = 21
+    }
+    @Suppress("UnstableApiUsage")
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+    namespace = "io.github.oshai"
+}
+
+tasks {
+    withType<Jar> {
+        metaInf.with(
+            copySpec {
+                from("${project.rootDir}/LICENSE")
+            }
+        )
+    }
+
+    val jvmJar by getting(Jar::class) {
+        manifest {
+            attributes("Automatic-Module-Name" to "io.github.oshai.kotlinlogging")
+        }
+    }
+}
+
+
+// Docs
+
+tasks {
+    register<Jar>("dokkaJar") {
+        from(dokkaHtml)
+        dependsOn(dokkaHtml)
+        archiveClassifier.set("javadoc")
+    }
+}
+
+
+// Tests
+
+tasks {
+    withType<Test> {
+        useJUnitPlatform()
+        testLogging {
+            showStandardStreams = true
+            showExceptions = true
+            exceptionFormat = FULL
+        }
+    }
+}
+
+
+// Static code analysis tools
+
+spotless {
+    kotlin {
+        target("src/**/*.kt")
+        ktfmt("0.47").googleStyle()
+    }
+}
+
+
+// Publishing
+
+nexusPublishing {
+    repositories {
+        sonatype {  // only for users registered in Sonatype after 24 Feb 2021
+            nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
+            snapshotRepositoryUrl.set(uri("https://s01.oss.sonatype.org/content/repositories/snapshots/"))
+            username.set(System.getenv("SONATYPE_USERNAME_2")) // defaults to project.properties["myNexusUsername"]
+            password.set(System.getenv("SONATYPE_PASSWORD_2")) // defaults to project.properties["myNexusPassword"]
+        }
+    }
+}
+
+apply(plugin = "io.github.gradle-nexus.publish-plugin")
 
 publishing {
     publications.withType<MavenPublication> {
         pom {
             name.set("kotlin-logging")
             description.set("kotlin-logging $version - Lightweight logging framework for Kotlin")
-            url.set("https://github.com/MicroUtils/kotlin-logging")
+            url.set("https://github.com/oshai/kotlin-logging")
             licenses {
                 license {
                     name.set("The Apache Software License, Version 2.0")
-                    url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                    url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
                 }
             }
             developers {
@@ -116,47 +310,41 @@ publishing {
                     name.set("Ohad Shai")
                     email.set("ohadshai@gmail.com")
                     organization.set("github")
-                    organizationUrl.set("http://www.github.com")
+                    organizationUrl.set("https://www.github.com")
                 }
             }
             scm {
-                connection.set("scm:git:git://github.com/MicroUtils/kotlin-logging.git")
-                developerConnection.set("scm:git:ssh://github.com:MicroUtils/kotlin-logging.git")
-                url.set("http://github.com/MicroUtils/kotlin-logging/tree/master")
+                connection.set("scm:git:git://github.com/oshai/kotlin-logging.git")
+                developerConnection.set("scm:git:ssh://github.com:oshai/kotlin-logging.git")
+                url.set("https://github.com/oshai/kotlin-logging/tree/master")
             }
         }
-        artifact(tasks["javadocJar"])
+        artifact(tasks["dokkaJar"])
     }
 }
 
-bintray {
-    user = "oshai"//project.hasProperty("bintrayUser") ? project.property("bintrayUser") : System.getenv("BINTRAY_USER")
-    key = "mykey" //https://bintray.com/profile/edit
-    // project.hasProperty("bintrayApiKey") ? project.property("bintrayApiKey") : System.getenv("BINTRAY_API_KEY")
-    setPublications("metadata", "jvm", "js")
-    publish = true //[Default: false] Whether version should be auto published after an upload
-    pkg.apply {
-        repo = "kotlin-logging"
-        name = "kotlin-logging"
-        userOrg = "microutils"
-        setLicenses("Apache-2.0")
-        vcsUrl = "https://github.com/MicroUtils/kotlin-logging"
-        websiteUrl = "https://github.com/MicroUtils/kotlin-logging"
-        issueTrackerUrl = "https://github.com/MicroUtils/kotlin-logging/issues"
+signing {
+    useInMemoryPgpKeys(
+        System.getProperty("GPG_PRIVATE_KEY"),
+        System.getProperty("GPG_PRIVATE_PASSWORD")
+    )
+    sign(publishing.publications)
+}
 
-        githubRepo = "MicroUtils/kotlin-logging"
-        githubReleaseNotesFile = "ChangeLog.md"
-        version.apply {
-            name = "${project.version}"
-            desc = "kotlin-logging - Lightweight logging framework for Kotlin"
-            released = "${Date()}"
-            gpg.sign = true //Determines whether to GPG sign the files. The default is false
-            mavenCentralSync.apply {
-                sync = true //[Default: true] Determines whether to sync the version to Maven Central.
-                user = "token" //OSS user token: mandatory
-                password = "pass" //OSS user password: mandatory
-                close = "1" //Optional property. By default the staging repository is closed and artifacts are released to Maven Central. You can optionally turn this behaviour off (by puting 0 as value) and release the version manually.
-            }
-        }
+
+// Gradle wrapper
+
+tasks {
+    // see https://docs.gradle.org/current/userguide/gradle_wrapper.html#customizing_wrapper
+    wrapper {
+        distributionType = Wrapper.DistributionType.ALL
     }
 }
+
+//region Fix Gradle warning about signing tasks using publishing task outputs without explicit dependencies
+// https://github.com/gradle/gradle/issues/26091
+tasks.withType<AbstractPublishToMaven>().configureEach {
+    val signingTasks = tasks.withType<Sign>()
+    mustRunAfter(signingTasks)
+}
+//endregion

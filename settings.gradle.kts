@@ -1,10 +1,9 @@
-rootProject.name = "kotlin-logging"
-
-enableFeaturePreview("GRADLE_METADATA")
-
-buildscript {
+pluginManagement {
     repositories {
+        google()
+        gradlePluginPortal()
         mavenCentral()
-        jcenter()
     }
 }
+
+rootProject.name = "kotlin-logging"
